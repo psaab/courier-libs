@@ -63,6 +63,7 @@
 #include	<sstream>
 #include	<iterator>
 #include	<algorithm>
+#include	<exception>
 #include	<utility>
 #include	<unordered_map>
 
@@ -167,16 +168,31 @@ int imapscan_maildir(imapscaninfo *scaninfo, int leavenew, int ro)
 int imapscan_maildir(imapscaninfo *scaninfo, int leavenew, int ro,
 		     std::vector<uidplus_info> &uidplus)
 {
-	return imapmaildirlock(
-		scaninfo, scaninfo->current_mailbox,
-		[&]
-		{
-			return do_imapscan_maildir2(
-				scaninfo,
-				leavenew,
-				ro,
-				uidplus) == 0;
-		}) ? 0:-1;
+	try
+	{
+		return imapmaildirlock(
+			scaninfo, scaninfo->current_mailbox,
+			[&]
+			{
+				return do_imapscan_maildir2(
+					scaninfo,
+					leavenew,
+					ro,
+					uidplus) == 0;
+			}) ? 0:-1;
+	}
+	catch (const std::exception &e)
+	{
+		fprintf(stderr, "ERR: %s: maildir scan failed: %s\n",
+			scaninfo->current_mailbox.c_str(), e.what());
+		return -1;
+	}
+	catch (...)
+	{
+		fprintf(stderr, "ERR: %s: maildir scan failed\n",
+			scaninfo->current_mailbox.c_str());
+		return -1;
+	}
 }
 
 /* This structure is a temporary home for the filenames */
@@ -704,43 +720,42 @@ static int do_imapscan_maildir2(imapscaninfo *scaninfo,
 
 	/* Step 8 - create the final scaninfo array */
 
-	scaninfo->msgs.clear();
-	scaninfo->msgs.resize(tempinfo_array.size());
-	scaninfo->uidv=uidv;
-	scaninfo->left_unseen=left_unseen;
-	scaninfo->nextuid=nextuid+left_unseen;
+	std::vector<imapscanmessageinfo> new_msgs;
+	new_msgs.resize(tempinfo_array.size());
 
 	for (size_t i=0; i<tempinfo_array.size(); i++)
 	{
-		scaninfo->msgs[i].uid=tempinfo_array[i].uid;
-		scaninfo->msgs[i].filename=
+		new_msgs[i].uid=tempinfo_array[i].uid;
+		new_msgs[i].filename=
 			tempinfo_array[i].filename;
 #if SMAP
 		if (smapflag)
-			scaninfo->msgs[i].recentflag=0;
+			new_msgs[i].recentflag=0;
 		else
 #endif
-			scaninfo->msgs[i].recentflag=
+			new_msgs[i].recentflag=
 				tempinfo_array[i].isrecent;
 	}
 
 	// When loading keywords we'll need to look up the message by its
 	// filename.
+	mail::keywords::hashtable<keyword_meta> new_keywords;
+
 	std::unordered_map<const std::string *,
 			   imapscanmessageinfo *, filename_hash, filename_cmp
 			   > lookup;
 
-	for (auto &msg:scaninfo->msgs)
+	for (auto &msg:new_msgs)
 	{
 		lookup.emplace(&msg.filename, &msg);
 	}
 
-	scaninfo->keywords.load(
+	new_keywords.load(
 		dir,
 		[&]
 		(const keyword_meta &km)
 		{
-			return scaninfo->msgs.at(km.index).filename;
+			return new_msgs.at(km.index).filename;
 		},
 		[&]
 		(const std::string &filename,
@@ -752,9 +767,9 @@ static int do_imapscan_maildir2(imapscaninfo *scaninfo,
 				return false;
 
 			iter->second->keywords.keywords(
-				scaninfo->keywords,
+				new_keywords,
 				keywords,
-				(size_t)(iter->second-&scaninfo->msgs[0])
+				(size_t)(iter->second-&new_msgs[0])
 			);
 
 			return true;
@@ -763,6 +778,12 @@ static int do_imapscan_maildir2(imapscaninfo *scaninfo,
 		{
 			return false;
 		});
+
+	scaninfo->msgs.swap(new_msgs);
+	scaninfo->keywords=std::move(new_keywords);
+	scaninfo->uidv=uidv;
+	scaninfo->left_unseen=left_unseen;
+	scaninfo->nextuid=nextuid+left_unseen;
 	return (0);
 }
 
