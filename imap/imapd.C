@@ -90,6 +90,7 @@
 #include	<functional>
 #include	<vector>
 #include	<optional>
+#include	<stdexcept>
 #include	<tuple>
 
 #define KEYWORD_IMAPVERBOTTEN " (){%*\"\\]"
@@ -179,7 +180,18 @@ bool imapmaildirlock(imapscaninfo *scaninfo,
 	if (!uselocks())
 		return callback();
 
-	maildir::watch::lock lock{scaninfo->watcher};
+	std::optional<maildir::watch::lock> lock;
+
+	try
+	{
+		lock.emplace(scaninfo->watcher);
+	}
+	catch (const std::runtime_error &e)
+	{
+		fprintf(stderr, "ERR: %s: maildir lock failed: %s\n",
+			maildir.c_str(), e.what());
+		return false;
+	}
 
 	return callback();
 }
