@@ -52,15 +52,26 @@ maildir::watch::watch(const std::string &maildir_arg)
 	,
 	  inotify_fd{-1}
 #endif
+	,
+	  now{0},
+	  timeout{0}
 {
 }
 
-maildir::watch::watch(watch &&ww) : watch{""}
+maildir::watch::watch(watch &&ww) noexcept
+	: maildir{}
+#if HAVE_INOTIFY_INIT
+	,
+	  inotify_fd{-1}
+#endif
+	,
+	  now{0},
+	  timeout{0}
 {
 	operator=(std::move(ww));
 }
 
-maildir::watch &maildir::watch::operator=(watch &&ww)
+maildir::watch &maildir::watch::operator=(watch &&ww) noexcept
 {
 	std::swap(maildir, ww.maildir);
 #if HAVE_INOTIFY_INIT

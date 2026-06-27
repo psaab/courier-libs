@@ -120,8 +120,17 @@ imapscaninfo &imapscaninfo::operator=(imapscaninfo &&other) noexcept
 
 	other.watcher=std::move(watcher_save);
 
-	std::swap(static_cast<imapscaninfo_base &>(*this),
-		  static_cast<imapscaninfo_base &>(other));
+	auto &this_base=static_cast<imapscaninfo_base &>(*this);
+	auto &other_base=static_cast<imapscaninfo_base &>(other);
+
+	std::swap(this_base.current_mailbox, other_base.current_mailbox);
+	std::swap(this_base.current_mailbox_acl,
+		  other_base.current_mailbox_acl);
+	std::swap(this_base.msgs, other_base.msgs);
+	std::swap(this_base.uidv, other_base.uidv);
+	std::swap(this_base.left_unseen, other_base.left_unseen);
+	std::swap(this_base.nextuid, other_base.nextuid);
+	std::swap(this_base.keywords, other_base.keywords);
 
 	return *this;
 }
