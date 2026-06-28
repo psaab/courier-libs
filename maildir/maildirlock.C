@@ -25,7 +25,13 @@
 ** Courier-IMAP compatible maildir lock.
 */
 
-static std::string do_lock(const std::string &dir,
+struct lock_result {
+	std::string lockname;
+	std::string filename;
+	int error=0;
+};
+
+static lock_result do_lock(const std::string &dir,
 			   maildir::watch *w)
 {
 	maildir::tmpcreate_info createInfo;
@@ -41,7 +47,7 @@ static std::string do_lock(const std::string &dir,
 	int fd=createInfo.fd();
 
 	if (fd < 0)
-		return "";
+		return {"", createInfo.tmpname, errno};
 
 	close(fd);
 
@@ -68,11 +74,10 @@ static std::string do_lock(const std::string &dir,
 			continue;
 		}
 
-		createInfo.newname.clear();
-		break;
+		return {"", createInfo.newname, errno};
 	}
 
-	return createInfo.newname;
+	return {createInfo.newname, "", 0};
 }
 
 maildir::watch::lock::lock(watch &&w)
@@ -81,10 +86,29 @@ maildir::watch::lock::lock(watch &&w)
 }
 
 maildir::watch::lock::lock(watch &w)
-	: lockname{do_lock(w.maildir, &w)}
 {
+	auto result=do_lock(w.maildir, &w);
+
+	lockname=result.lockname;
+
 	if (lockname.empty())
-		throw std::runtime_error("invalid maildir for a lock");
+	{
+		std::string errmsg="invalid maildir for a lock";
+
+		if (!result.filename.empty())
+		{
+			errmsg += ": ";
+			errmsg += result.filename;
+		}
+
+		if (result.error)
+		{
+			errmsg += ": ";
+			errmsg += strerror(result.error);
+		}
+
+		throw std::runtime_error(errmsg);
+	}
 }
 
 maildir::watch::lock::~lock()
@@ -98,7 +122,8 @@ char *maildir_lock(const char *dir, struct maildirwatch *w,
 	if (tryAnyway)
 		*tryAnyway=0;
 
-	auto s=do_lock(dir, w ? static_cast<maildir::watch *>(w):nullptr);
+	auto s=do_lock(dir, w ? static_cast<maildir::watch *>(w):nullptr)
+		.lockname;
 
 	if (s.empty())
 		return nullptr;
